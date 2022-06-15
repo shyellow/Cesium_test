@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ImageryDemo</title>
+
+    <script src="./Cesium/Cesium.js"></script>
+    <link rel="stylesheet" href="./Cesium/Widgets/widgets.css">
+    <link rel="stylesheet" href="index.css" media="screen">
+</head>
+
+<body>
+
+
+    <div id="cesiumContainer" style="width: 100%; height: 100%;"></div>
+
+    <!-- 交互elements -->
+    <div class="backdrop" id="menu">
+        <h2>Sample NYC Geocaches</h2>
+        <span><strong>Camera Mode</strong></span>
+        <div class="nowrap">
+            <input id="freeMode" name="source" type="radio" checked />
+            <label for="freeMode">Free</label>
+        </div>
+        <div class="nowrap">
+            <input id="droneMode" name="source" type="radio" />
+            <label for="droneMode">Drone View</label>
+        </div>
+        <br>
+        <span><strong>3d Tile Styling</strong></span>
+        <div class="nowrap">
+            <select id="tileStyle">
+                <option value="none">None</option>
+                <option value="height">Height</option>
+                <option value="transparent">Transparent</option>
+            </select>
+        </div>
+        <br>
+        <span><strong>Display Options</strong></span>
+        <div class="nowrap">
+            <input id="shadows" type="checkbox" />
+            <label for="shadows">Shadows</label>
+        </div>
+
+        <div class="nowrap">
+            <input id="neighborhoods" type="checkbox" checked />
+            <label for="neighborhoods">Neighborhoods</label>
+        </div>
+
+        <span><strong>Floor Analysis</strong></span>
+        <button id="coverStart">start</button>
+        <button id="coverPositon">changePosition</button>
+        <br>
+    </div>
+    <div id="loadingIndicator" class="cover">
+        <div id="loadingIcon" class="loadingIndicator"></div>
+    </div>
+
+    <script>
+
+        Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIwYjg0ZWI5NS0zNzBjLTQxOWEtYjZlOS00YTgxNmI4MDFhODEiLCJpZCI6NzQwMTAsImlhdCI6MTY0NDc0NzAxOX0.XQdimWGzeoZUoHENSTRHg2eSAHNn6G6USy2HEX-H9Gc"
+        var viewer = new Cesium.Viewer("cesiumContainer", {
+            baseLayerProvider: false,
+            imageryProvider: new Cesium.ArcGisMapServerImageryProvider({
+                url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
+            }),
+
+            // geocoder:false,搜索
+            // animation:false,//动画小部件
+            fullscreenButton: false,
+            // vrButton:true,创建vr按钮
+            infoBox: true,
+            sceneModePicker: false,
+            // timeline:false,
+            navigationHelpButton: false,
+            terrainProvider: Cesium.createWorldTerrain({
+                requestWaterMask: true, // required for water effects
+                requestVertexNormals: true // required for terrain lighting
+            }),
+        });
+        // 确保地形以下的物体不可见，打开深度检测，那么在地形以下的对象不可见
+        viewer.scene.globe.depthTestAgainstTerrain = true;
+
+        // viewer.scene.globe.enableLighting = true;全球光照显示
+
+        // 创建相机初始位置和朝向
+        // var initialPosition = new Cesium.Cartesian3.fromDegrees(121.47, 31.23, 2631.082799425431);//初始三维笛卡尔坐标，获取并返回以度为单位的坐标
+        var initialPosition = new Cesium.Cartesian3.fromDegrees(-73.998114468289017509, 40.674512895646692812, 2631.082799425431);//初始三维笛卡尔坐标，获取并返回以度为单位的坐标
+        var initialOrientation = new Cesium.HeadingPitchRoll.fromDegrees(7.1077496389876024807, -31.987223091598949054, 0.025883251314954971306);//设置初始方向，且返回的是度
+
+
+        //创建一个对象储存参数之后传入camera.setView
+        var homeCameraView = {
+            destination: initialPosition,
+            orientation: {
+                heading: initialOrientation.heading,
+                pitch: initialOrientation.pitch,
+                roll: initialOrientation.roll
+            }
+        };
+        // 设置视图
+        viewer.scene.camera.setView(homeCameraView);
+
+
+        //重写homeButton使默认位置为设置的位置
+        // 增加相机飞行动画参数
+        homeCameraView.duration = 2.0;
+        homeCameraView.maximumHeight = 2000;
+        homeCameraView.pitchAdjustHeight = 2000;
+        homeCameraView.endTransform = Cesium.Matrix4.IDENTITY;
+        // Override the default home button
+        viewer.homeButton.viewModel.command.beforeExecute.addEventListener(function (e) {
+            e.cancel = true;
+            viewer.scene.camera.flyTo(homeCameraView);
+        });
+
+        // 设置时钟和时间线
+        viewer.clock.shouldAnimate = false; // 当viewer开启后，启动动画
+        viewer.clock.startTime = Cesium.JulianDate.fromIso8601("2022-01-24T16:00:00Z");
+        viewer.clock.stopTime = Cesium.JulianDate.fromIso8601("2022-01-24T16:20:00Z");
+        viewer.clock.currentTime = Cesium.JulianDate.fromIso8601("2022-01-24T16:00:00Z");
+        viewer.clock.multiplier = 2; // 设置加速倍率
+        viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER; // tick computation mode(还没理解具体含义)
+        viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP; // 循环播放
+        viewer.timeline.zoomTo(viewer.clock.startTime, viewer.clock.stopTime); // 设置时间的可见范围
+
+
+        var kmlOptions = {
+            camera: viewer.scene.camera,
+            canvas: viewer.scene.canvas,
+            clampToGround: true
+        };
+
+
+        //官方教程加载KML数据，使用异步
+        // 从这个KML的url里加载POI点位  : http://catalog.opendata.city/dataset/pediacities-nyc-neighborhoods/resource/91778048-3c58-449c-a3f9-365ed203e914
+        var geocachePromise = Cesium.KmlDataSource.load('./sourceData/sampleGeocacheLocations.kml', kmlOptions);
+        geocachePromise.then(function (dataSource) {
+            viewer.dataSources.add(dataSource);
+
+            //获取entity列表（所有的entity）
+            var geocacheEntities = dataSource.entities.values;
+
+            for (var i = 0; i < geocacheEntities.length; i++) {
+                var entity = geocacheEntities[i];
+
+                // Cesim.defined ： 如果定义了对象则返回true，否则返回false
+                if (Cesium.defined(entity.billboard)) {
+                    //调整垂直方向的原点，保证图标里的针尖对着地表位置
+                    entity.billboard.verticalOrigin = Cesium.VerticalOrigin.BOTTOM;
+                    // 去掉文字的显示
+                    entity.label = undefined;
+                    // 设置可见距离
+                    entity.billboard.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(10.0, 20000.0);
+
+
+                    //将Infobox里面的属性修改为经纬度
+                    // 计算经纬度（角度表示）
+                    // Cartographic:由经度 纬度 高度定义的位置
+                    //Cartographic.fromCartesian(): 从笛卡尔坐标中创建一个新的制图实例，生成的对象以弧度制表示 , 参数为要转化为制图表达的笛卡尔位置
+                    // position.getValue: 在固定的帧中在指定的时间获取属性的值。
+                    var cartographicPosition = Cesium.Cartographic.fromCartesian(entity.position.getValue(Cesium.JulianDate.now()));
+                    var longitude = Cesium.Math.toDegrees(cartographicPosition.longitude);
+                    var latitude = Cesium.Math.toDegrees(cartographicPosition.latitude);
+
+                    // 修改描述信息
+                    // toFixed()将数字转化为字符串， 结果保留里面设置的位数
+                    var description = '<table class="cesium-infoBox-defaultTable cesium-infoBox-defaultTable-lighter"><tbody>' +
+                        '<tr><th>' + "经度" + '</th><td>' + longitude.toFixed(5) + '</td></tr>' +
+                        '<tr><th>' + "纬度" + '</th><td>' + latitude.toFixed(5) + '</td></tr>' +
+                        '</tbody></table>';
+
+                    entity.description = description;
+                }
+            }
+        });
+
+        //官方文档中加载KML数据
+        // viewer.dataSources.add(Cesium.KmlDataSource.load('./sourceData/sampleGeocacheLocations.kml',
+        //     {
+        //         camera: viewer.scene.camera,
+        //         canvas: viewer.scene.canvas,
+        //         clampToGround: true
+        //     })
+        // );
+
+
+        // 加载GeoJson格式的行政区划文件
+        var geojsonOptions = {
+            clampToGround: true
+        };
+        // 从geojson文件加载行政区多边形边界数据
+        var neighborhoodsPromise = Cesium.GeoJsonDataSource.load('./sourceData/sampleNeighborhoods.geojson', geojsonOptions);
+
+        var neighborhoods;
+        neighborhoodsPromise.then(function (dataSource) {
+            viewer.dataSources.add(dataSource);
+            neighborhoods = dataSource.entities;
+
+            // 获取entity列表遍历
+            var neighborhoodEntities = dataSource.entities.values;
+            for (let i = 0; i < neighborhoodEntities.length; i++) {
+                var entity = neighborhoodEntities[i];
+
+                if (Cesium.defined(entity.polygon)) {
+
+                    //把properties里面的neighborhood设置到name
+                    entity.name = entity.properties.neighborhood;
+
+                    //设置一个半透明颜色
+                    entity.polygon.material = Cesium.Color.fromRandom({
+                        red: 0.1,
+                        maximmGreen: 0.5,
+                        minumumBlue: 0.5,
+                        // 设置透明度
+                        alpha: 0.5
+
+                    });
+                    // 设置这个属性让多边形贴地，ClassificationType.CESIUM_3D_TILE 是贴模型，ClassificationType.BOTH是贴模型和贴地
+                    entity.polygon.classificationType = Cesium.ClassificationType.TERRAIN;
+
+                    // 获取多边形的positions列表 并计算它的中心点
+                    // hierarchy : 层次结构
+                    var polyPositions = entity.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+                    // BoundingSphere 边界球 ： 具有中心和半径的包围球
+                    // BoundingSphere.fromPoints： 计算包含3D笛卡尔点列表的紧配合边界球  - 第一个参数为(包围球将包围的点的数组。每个点必须具有 x ， y 和 z 属性。)
+                    var polyCenter = Cesium.BoundingSphere.fromPoints(polyPositions).center;
+
+                    // Ellipsoid： 笛卡尔坐标系中由等式定义的二次曲面 （x/a）^ 2 +（y/b）^ 2 +（z/c）^ 2 = 1 。主要用于用cesium表示行星体的形状。与其直接构造此对象，不如提供通常使用常量。
+                    // Ellipsoid.WGS84：初始化为WGS84标准的Ellipsoid实例
+                    // scaleToGeodeticSurface： 沿大地表面法线缩放提供的笛卡尔位置这样它就在这个椭球的表面上。如果位置是在椭圆体的中心，此函数返回undefined。
+                    polyCenter = Cesium.Ellipsoid.WGS84.scaleToGeodeticSurface(polyCenter);
+                    entity.position = polyCenter;
+                    // 生成文字标注
+                    entity.label = {
+                        text: entity.name,
+                    };
+                }
+            }
+        });
+        // 从CZML中载入无人机轨迹
+        // 加载CZML改变了动画的时间！！！！
+        var dronePromise = Cesium.CzmlDataSource.load('./sourceData/sampleFlight.czml');
+        var drone;
+        dronePromise.then(function (dataSource) {
+            viewer.dataSources.add(dataSource);
+            // 使用id获取在CZML 数据中定义的无人机entity
+            drone = dataSource.entities.getById('Aircraft/Aircraft1');
+            drone.model = {
+                uri: './sourceData/Models/CesiumDrone.gltf',
+                minimumPixelSize: 128,
+                maximumScale: 1000,
+                silhouetteColor: Cesium.Color.WHITE,
+                silhouetteSize: 2
+            };
+            // 基于无人机轨迹的位置点，自动计算朝向 
+            drone.orientation = new Cesium.VelocityOrientationProperty(drone.position);
+            // 光滑的路径插值
+            drone.position.setInterpolationOptions({
+                interpolationDegree: 3,
+                interpolationAlgorithm: Cesium.HermitePolynomialApproximation
+            });
+
+        });
+        // 加载纽约建筑物模型
+        var city = viewer.scene.primitives.add(new Cesium.Cesium3DTileset({ url: Cesium.IonResource.fromAssetId(75343) }));
+
+        //修正偏移量 ,使3dTile模型位置正确
+        // 调整3dTile模型的高度，使其刚好放在地表
+        var heightOffset = -32;
+        city.readyPromise.then(function (tileset) {
+            var boundingSphere = tileset.boundingSphere;
+            var cartographic = Cesium.Cartographic.fromCartesian(boundingSphere.center);
+            var surface = Cesium.Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, 0.0);
+            var offset = Cesium.Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, heightOffset);
+            var translation = Cesium.Cartesian3.subtract(offset, surface, new Cesium.Cartesian3());
+            tileset.modelMatrix = Cesium.Matrix4.fromTranslation(translation);
+        });
+
+        //修改属性
+        var defaultStyle = new Cesium.Cesium3DTileStyle({
+            color: "color('white')",
+            show: true
+        });
+        var transparent = new Cesium.Cesium3DTileStyle({
+            color: "color('white' , 0.3)",//第二个参数设置透明度
+            show: true
+        });
+        //根据高度显示样式(使用3DTile样式)
+        var heightStyle = new Cesium.Cesium3DTileStyle({
+            color: {
+                conditions: [
+                    ["${Height} >= 300", "rgba(45, 0, 75, 0.5)"],
+                    ["${Height} >= 200", "rgb(102, 71, 151)"],
+                    ["${Height} >= 100", "rgb(170, 162, 204)"],
+                    ["${Height} >= 50", "rgb(224, 226, 238)"],
+                    ["${Height} >= 25", "rgb(252, 230, 200)"],
+                    ["${Height} >= 10", "rgb(248, 176, 87)"],
+                    ["${Height} >= 5", "rgb(198, 106, 11)"],
+                    ["true", "rgb(127, 59, 8)"]
+                ]
+            }
+        });
+
+        city.style = defaultStyle;
+
+        //官方文档切换颜色
+        // city.style = new Cesium.Cesium3DTileStyle({
+        //     color: {
+        //         conditions: [
+        //             ['${Height} >= 100', 'color("purple", 0.5)'],
+        //             ['${Height} >= 50', 'color("red")'],
+        //             ['true', 'color("blue")']
+        //         ]
+        //     },
+        //     show: '${Height} > 0',
+        //     meta: {
+        //         description: '"Building id ${id} has height ${Height}."'
+        //     }
+        // });
+
+        //实现交互功能
+        var handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+        var previousPickedEntity = undefined;
+        handler.setInputAction(function (movement) {
+            var pickedPrimitive = viewer.scene.pick(movement.endPosition);
+            var pickedEntity = (Cesium.defined(pickedPrimitive)) ? pickedPrimitive.id : undefined;
+            // 取消上一个高亮对象的高亮效果
+            if (Cesium.defined(previousPickedEntity)) {
+                previousPickedEntity.billboard.scale = 1.0;
+                previousPickedEntity.billboard.color = Cesium.Color.WHITE;
+            }
+            //将pick的entity设置为高亮
+            if (Cesium.defined(pickedEntity) && Cesium.defined(pickedEntity.billboard)) {
+                pickedEntity.billboard.scale = 2.0;
+                pickedEntity.billboard.color = Cesium.Color.ORANGERED;
+                previousPickedEntity = pickedEntity;
+            }
+        }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+        // 设置相机模式跟随无人机
+        var freeModeElement = document.getElementById('freeMode');
+        var droneModeElement = document.getElementById('droneMode');
+        function setCameraMode() {
+            if (droneModeElement.checked) {
+                viewer.trackedEntity = drone;
+            } else {
+                viewer.trackedEntity = undefined;
+                viewer.scene.camera.flyTo(homeCameraView);
+            }
+        }
+        freeModeElement.addEventListener('change', setCameraMode);
+        droneModeElement.addEventListener('change', setCameraMode);
+        //双击无人机切换到视角
+        viewer.trackedEntityChanged.addEventListener(function () {
+            if (viewer.trackedEntity === drone) {
+                freeModeElement.checked = false;
+                droneModeElement.checked = true;
+            }
+        });
+
+        var neighborhoodsElement = document.getElementById('neighborhoods');
+        neighborhoodsElement.addEventListener('change', function (e) {
+            //shadows: 确定阴影是否由光源投射。
+            neighborhoods.show = e.target.checked;
+        });
+        var shadowsElement = document.getElementById('shadows');
+        shadowsElement.addEventListener('change', function (e) {
+            viewer.shadows = e.target.checked;
+        });
+
+        // 添加一个载入器(界面呈暗灰色)，当所有切片载入后隐藏
+        var loadingIndicator = document.getElementById('loadingIndicator');
+        loadingIndicator.style.display = 'block';
+        city.readyPromise.then(function () {
+            loadingIndicator.style.display = 'none';
+        });
+
+        // 改变建筑高度的HTML交互
+        var buildingTiles = document.getElementById('tileStyle');
+        console.log(buildingTiles);
+        buildingTiles.addEventListener('change', function () {
+            if (buildingTiles.value == "none") {
+                city.style = defaultStyle;
+            } else if (buildingTiles.value == "height") {
+                city.style = heightStyle;
+            } else if (buildingTiles.value == "transparent") {
+                city.style = transparent;
+            }
+        });
+        // function changeBuilding(){
+        //     if(buildingTiles.value == "none"){
+        //         city.style = defaultStyle;
+        //     }else if(buildingTiles.value == "height"){
+        //         city.style = heightStyle;
+        //     }
+        // };
+
+        // changeBuilding();
+
+
+        // 淹没分析
+
+        // 定位到分析范围中心点
+        viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(100.1057121, 38.7622031, 3000),
+            orientation: {
+                heading: Cesium.Math.toRadians(130.304929908965146),
+                pitch: Cesium.Math.toRadians(-17.364771143804237),
+                roll: 0.09931507517437696
+            }
+        });
+
+        let points = [
+            [100.04055555555556, 38.765],
+            [100.15777777777778, 38.74777777777778],
+            [100.15444444444445, 38.723055555555554],
+            [100.04, 38.72277777777778]
+        ]
+        let polygonArr = [];
+        for (let i = 0; i < points.length; i++) {
+            polygonArr.push(points[i][0]);
+            polygonArr.push(points[i][1]);
+            polygonArr.push(0);
+        }
+        document.getElementById('coverStart').onclick = function () {
+            drawWater(3000, polygonArr, 2000);
+        }
+        // targetHeight 目标高度
+        // adapCoordi 范围坐标
+        // waterHeight 当前水高度
+
+        function drawWater(targetHeight, areaCoor, waterHeight) {
+            let entity = viewer.entities.add({
+                polygon: {
+                    // fromDegreesArr : 从数组中的三个连续元素创建Cartesian3
+                    // 定义一个层次结构，函数里面的第一个参数为多边形的外部边界的线性环
+                    hierarchy: new Cesium.PolygonHierarchy(Cesium.Cartesian3.fromDegreesArrayHeights(areaCoor)),
+                    // 对每个位置使用options.positions的高度，而不要使用options.height确定高度。
+                    perPositionHeight: true,
+                    // extrdeHeight : 多边形的凸出面与椭球面之间的距离（以米为单位）
+                    // CallbackProperty:一个 Property ，其值由回调函数延迟计算
+                    extrudedHeight: new Cesium.CallbackProperty(function () { //此处用属性回调函数，直接设置extrudedHeight会导致闪烁
+                        waterHeight += 2;
+                        if (waterHeight > targetHeight) {
+                            waterHeight = targetHeight;//设置最大值
+                        }
+                        return waterHeight;
+                    }, false),
+                    material: new Cesium.Color.fromBytes(0, 191, 255, 100),
+                }
+            });
+        }
+        document.getElementById("coverPositon").onclick = function () {
+            viewer.camera.setView({
+                destination: Cesium.Cartesian3.fromDegrees(100.1057121, 38.7622031, 3000),
+                orientation: {
+                    heading: Cesium.Math.toRadians(130.304929908965146),
+                    pitch: Cesium.Math.toRadians(-17.364771143804237),
+                    roll: 0.09931507517437696
+                }
+            });
+        };
+    </script>
+</body>
+
+</html>
